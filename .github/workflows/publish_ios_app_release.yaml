@@ -13,10 +13,17 @@ jobs:
 
       #先生成时间戳版本
       - name: Generate timestamp version
-        id: timestamp
         run: |
           CURRENT_DATE=$(date +"%Y%m%d-%H%M%S")
-          echo "VERSION=$CURRENT_DATE" >> $GITHUB_ENV
+          echo "TAG_NAME=build-$CURRENT_DATE" >> $GITHUB_ENV
+
+      #创建并推送标签
+      - name: Create Tag
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git tag ${{ env.TAG_NAME }}
+          git push origin ${{ env.TAG_NAME }}
 
       #设置Flutter环境
       - name: Flutter action
@@ -45,32 +52,24 @@ jobs:
           cp -R build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/Runner.app
           cd build/ios/iphoneos/
           zip -q -r ios_no_sign.ipa Payload
-          echo "IPA created at: $(pwd)/ios_no_sign.ipa"
 
       #检查生成的文件
       - name: Verify IPA file
         run: |
-          FILE_PATH="simple_live_app/build/ios/iphoneos/ios_no_sign.ipa"
+          FILE_PATH="simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
           if [ -f "$FILE_PATH" ]; then
-            echo "✅ IPA文件已成功创建: $FILE_PATH"
-            ls -lh "$FILE_PATH"
+            echo "✅ IPA文件已成功创建"
           else
-            echo "❌ IPA文件未找到: $FILE_PATH"
-            find . -name "*.ipa" -type f
+            echo "❌ IPA文件未找到"
           fi
 
       #上传至Release
       - name: Upload Release
         uses: softprops/action-gh-release@v1
         with:
-          name: "iOS Build ${{ env.VERSION }}"
-          body: |
-            自动构建的iOS应用
-            
-            构建信息:
-            - 时间: $(date)
-            - Commit: ${{ github.sha }}
-            - Runner: ${{ runner.os }}
+          tag_name: ${{ env.TAG_NAME }}
+          name: "iOS Build"
+          body: "自动构建的iOS应用 - $(date)"
           draft: false
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
