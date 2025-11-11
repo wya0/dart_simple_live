@@ -1,0 +1,83 @@
+name: ios-build-action
+  workflow_dispatch:  # 启用手动触发
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      #签出代码 
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      #设置Flutter环境
+      - name: Flutter action
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.x'
+          cache: true 
+
+      #更新Flutter的packages
+      - name: Restore packages
+        run: |
+          cd simple_live_app
+          flutter pub get
+
+      #打包iOS
+      - name: Build IPA
+        run: |
+          cd simple_live_app
+          flutter build ios --release --no-codesign
+      
+      #创建未签名ipa
+      - name: Create IPA
+        run: |
+          cd simple_live_app
+          mkdir -p build/ios/iphoneos/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/Runner.app
+          cd build/ios/iphoneos/
+          zip -q -r ios_no ios_no_sign.ipa Payload
+          cd ../../../..
+
+      #上传IPA至Artifacts
+      - name: Upload IPA to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-app
+          path: simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
+
+      #读取版本信息
+      - name: Read version
+        id: version
+        uses: juliangruber/read-file-action@v1
+        with:
+          path: simple_live_app/assets/app_version.json
+          
+      - name: Extract version info
+        run: |
+          VERSION=$(jq -r '.version' simple_live_app/assets/app_version.json)
+          DESC=$(jq -r '.version_desc' simple_live_app/assets/app_version.json)
+          PRERELEASE=$(jq -r '.prerelease' simple_live_app/assets/app_version.json)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "DESC=$DESC" >> $GITHUB_ENV
+          echo "PRERELEASE=$PRERELEASE" >> $GITHUB_ENV
+          
+      - name: Display version info
+        run: |
+          echo "Version: ${{ env.VERSION }}"
+          echo "Description: ${{ env.DESC }}"
+          echo "Prerelease: ${{ env.PRERELEASE }}"
+
+      #上传至Release
+      - name: Upload Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "${{ env.VERSION }}"
+          body: "${{ env.DESC }}"
+          prerelease: ${{ env.PRERELEASE == 'true' }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
+
+      #完成
+      - run: echo "✅ iOS构建完成，状态：${{ job.status }}"
