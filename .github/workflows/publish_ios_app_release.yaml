@@ -53,7 +53,7 @@ jobs:
           cd build/ios/iphoneos/
           zip -q -r ios_no_sign.ipa Payload
 
-      #检查生成的文件
+      #检查生成的文件 (修复版本)
       - name: Verify IPA file
         run: |
           FILE_PATH="simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
