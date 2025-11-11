@@ -11,12 +11,19 @@ jobs:
       #签出代码 
       - uses: actions/checkout@v4
 
+      #先生成时间戳版本
+      - name: Generate timestamp version
+        id: timestamp
+        run: |
+          CURRENT_DATE=$(date +"%Y%m%d-%H%M%S")
+          echo "VERSION=$CURRENT_DATE" >> $GITHUB_ENV
+
       #设置Flutter环境
       - name: Flutter action
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.x'
-          cache: true 
+          cache: true
 
       #更新Flutter的packages
       - name: Restore packages
@@ -43,28 +50,20 @@ jobs:
       #检查生成的文件
       - name: Verify IPA file
         run: |
-          ls -lh simple_live_app/build/ios/iphoneos/ios_no_sign.ipa || echo "IPA file not found"
-
-      #生成基于时间的版本名
-      - name: Generate timestamp version
-        id: timestamp
-        run: |
-          DATE=$(date +"%Y%m%d-%H%M%S")
-          echo "VERSION=build-$DATE" >> $GITHUB_OUTPUT
-
-      #上传IPA至Artifacts
-      - name: Upload IPA to Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-app-${{ steps.timestamp.outputs.VERSION }}
-          path: simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
-          retention-days: 7  # 只保留7天
+          FILE_PATH="simple_live_app/build/ios/iphoneos/ios_no_sign.ipa"
+          if [ -f "$FILE_PATH" ]; then
+            echo "✅ IPA文件已成功创建: $FILE_PATH"
+            ls -lh "$FILE_PATH"
+          else
+            echo "❌ IPA文件未找到: $FILE_PATH"
+            find . -name "*.ipa" -type f
+          fi
 
       #上传至Release
       - name: Upload Release
         uses: softprops/action-gh-release@v1
         with:
-          name: "iOS Build ${{ steps.timestamp.outputs.VERSION }}"
+          name: "iOS Build ${{ env.VERSION }}"
           body: |
             自动构建的iOS应用
             
@@ -78,4 +77,4 @@ jobs:
           files: simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
 
       #完成
-      - run: echo "✅ iOS构建完成: ${{ steps.timestamp.outputs.VERSION }}"
+      - run: echo "✅ iOS构建完成"
