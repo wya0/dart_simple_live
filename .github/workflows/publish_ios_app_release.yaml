@@ -8,16 +8,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      #签出代码 
       - uses: actions/checkout@v4
 
-      #先生成时间戳版本
       - name: Generate timestamp version
         run: |
           CURRENT_DATE=$(date +"%Y%m%d-%H%M%S")
           echo "TAG_NAME=build-$CURRENT_DATE" >> $GITHUB_ENV
 
-      #创建并推送标签
       - name: Create Tag
         run: |
           git config user.name "github-actions"
@@ -25,55 +22,32 @@ jobs:
           git tag ${{ env.TAG_NAME }}
           git push origin ${{ env.TAG_NAME }}
 
-      #设置Flutter环境
       - name: Flutter action
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.x'
           cache: true
 
-      #更新Flutter的packages
-      - name: Restore packages
+      - name: Build and Package iOS
         run: |
           cd simple_live_app
           flutter pub get
-
-      #打包iOS
-      - name: Build IPA
-        run: |
-          cd simple_live_app
           flutter build ios --release --no-codesign
-      
-      #创建未签名ipa
-      - name: Create IPA
-        run: |
-          cd simple_live_app
           mkdir -p build/ios/iphoneos/Payload
           cp -R build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/Runner.app
           cd build/ios/iphoneos/
           zip -q -r ios_no_sign.ipa Payload
+          echo "IPA文件创建完成"
 
-      #检查生成的文件 (修复版本)
-      - name: Verify IPA file
-        run: |
-          FILE_PATH="simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
-          if [ -f "$FILE_PATH" ]; then
-            echo "✅ IPA文件已成功创建"
-          else
-            echo "❌ IPA文件未找到"
-          fi
-
-      #上传至Release
       - name: Upload Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.TAG_NAME }}
           name: "iOS Build"
-          body: "自动构建的iOS应用 - $(date)"
+          body: "自动构建的iOS应用"
           draft: false
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
           files: simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
 
-      #完成
       - run: echo "✅ iOS构建完成"
