@@ -67,11 +67,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Flutter action
+      - name: Flutter setup
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.x'
           cache: true
+      
+      - name: Configure PATH for Dart packages
+        run: |
+          # 在Windows上，Dart全局包安装在特定位置
+          PUB_CACHE="$HOME/AppData/Local/Pub/Cache/bin"
+          echo "$PUB_CACHE" >> $GITHUB_PATH
+          echo "Added to PATH: $PUB_CACHE"
+          echo "PATH=$PATH" >> $GITHUB_ENV
+        shell: bash
+      
+      - name: Install flutter_distributor globally
+        run: |
+          dart pub global activate flutter_distributor
+          which flutter_distributor || echo "flutter_distributor not found in PATH"
+          flutter_distributor --version || echo "Version check failed"
+        shell: bash
       
       - name: Enable Windows desktop
         run: |
@@ -82,27 +98,34 @@ jobs:
         run: |
           cd simple_live_app
           flutter pub get
-          dart pub global activate flutter_distributor
       
       - name: Build Windows application
         run: |
           cd simple_live_app
-          flutter_distributor package --platform windows --targets zip --skip-clean
+          # 使用完整路径调用 flutter_distributor
+          PUB_CACHE="$HOME/AppData/Local/Pub/Cache" \
+          "$PUB_CACHE/bin/flutter_distributor" package \
+            --platform windows \
+            --targets zip \
+            --skip-clean
           echo "Windows ZIP文件创建完成"
+        shell: bash
       
       - name: Locate Windows artifact
         id: find-artifact
         run: |
+          cd simple_live_app
           # 查找生成的ZIP文件
-          ARTIFACT_PATH=$(find ./build/dist -name "*.zip" -print -quit)
+          find build/dist -name "*.zip" -exec echo "Found: {}" \;
+          ARTIFACT_PATH=$(find build/dist -name "*.zip" -print -quit)
           if [ -z "$ARTIFACT_PATH" ]; then
             echo "❌ 未找到Windows ZIP文件!"
-            ls -R ./build/dist || true
+            ls -R build/dist || true
             exit 1
           fi
           echo "artifact_path=$ARTIFACT_PATH" >> $GITHUB_OUTPUT
           echo "✅ 找到Windows构建产物: $ARTIFACT_PATH"
-        working-directory: simple_live_app
+        shell: bash
       
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
