@@ -102,13 +102,17 @@ jobs:
             exit 1
           }
           
-          # 复制到固定位置并重命名
-          $destination = "../windows_app.zip"
-          Copy-Item -Path $zipFile.FullName -Destination $destination -Force
-          Write-Host "✅ 复制Windows构建产物到: $destination"
+          # 在当前目录重命名文件（避免使用..路径）
+          $newName = "windows_app.zip"
+          Rename-Item -Path $zipFile.FullName -NewName $newName -Force
+          $absPath = (Resolve-Path $newName).Path
           
-          # 设置输出变量
-          echo "artifact_path=$destination" >> $env:GITHUB_OUTPUT
+          Write-Host "✅ 重命名Windows构建产物为: $newName"
+          Write-Host "📁 绝对路径: $absPath"
+          
+          # 设置输出为相对于仓库根目录的路径
+          $relativePath = "simple_live_app/$newName"
+          echo "artifact_path=$relativePath" >> $env:GITHUB_OUTPUT
       
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -132,4 +136,36 @@ jobs:
         run: |
           echo "✅ iOS artifact:"
           ls -lh artifacts/ios-artifact/
-          if [ ! -f "artifacts/ios-artifact/
+          if [ ! -f "artifacts/ios-artifact/ios_no_sign.ipa" ]; then
+            echo "❌ iOS文件缺失: artifacts/ios-artifact/ios_no_sign.ipa"
+            exit 1
+          fi
+          
+          echo "✅ Windows artifact:"
+          ls -lh artifacts/windows-artifact/
+          if [ ! -f "artifacts/windows-artifact/windows_app.zip" ]; then
+            echo "❌ Windows文件缺失: artifacts/windows-artifact/windows_app.zip"
+            exit 1
+          fi
+          echo "✅ 所有平台构建产物验证通过"
+      
+      - name: Upload Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.setup.outputs.tag_name }}
+          name: "Multi-platform Build ${{ needs.setup.outputs.tag_name }}"
+          body: |
+            🚀 **自动构建的跨平台应用**
+            - 构建时间: $(date +"%Y-%m-%d %H:%M:%S UTC")
+            - iOS: 未签名IPA (需自行签名)
+            - Windows: 未签名ZIP (首次运行需解除锁定)
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            artifacts/ios-artifact/ios_no_sign.ipa
+            artifacts/windows-artifact/windows_app.zip
+      
+      - run: |
+          echo "✅ 跨平台构建完成!"
+          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.setup.outputs.tag_name }}"
