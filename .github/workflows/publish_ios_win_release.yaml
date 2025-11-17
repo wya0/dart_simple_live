@@ -1,0 +1,164 @@
+name: multi-platform-build
+
+on:
+  workflow_dispatch:  # 仅手动触发
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      tag_name: ${{ env.TAG_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Generate timestamp version
+        run: |
+          CURRENT_DATE=$(date +"%Y%m%d-%H%M%S")
+          echo "TAG_NAME=build-$CURRENT_DATE" >> $GITHUB_ENV
+          echo "tag_name=${{ env.TAG_NAME }}" >> $GITHUB_OUTPUT
+      
+      - name: Create and push tag
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git tag ${{ env.TAG_NAME }}
+          git push origin ${{ env.TAG_NAME }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-ios:
+    needs: setup
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Flutter setup
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.x'
+          cache: true
+      
+      - name: Build iOS (no sign)
+        run: |
+          cd simple_live_app
+          flutter pub get
+          flutter build ios --release --no-codesign
+          mkdir -p build/ios/iphoneos/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/
+          cd build/ios/iphoneos
+          zip -q -r ios_no_sign.ipa Payload
+        working-directory: simple_live_app
+      
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-artifact
+          path: simple_live_app/build/ios/iphoneos/ios_no_sign.ipa
+          retention-days: 1
+
+  build-windows:
+    needs: setup
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Flutter setup
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.x'
+          cache: true
+      
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+      
+      - name: Install dependencies
+        run: |
+          cd simple_live_app
+          flutter pub get
+          dart pub global activate flutter_distributor
+      
+      - name: Build Windows app
+        run: |
+          cd simple_live_app
+          flutter_distributor package --platform windows --targets zip --skip-clean
+        shell: bash
+      
+      - name: Locate and rename Windows artifact
+        id: find-windows-artifact
+        run: |
+          # 查找生成的 ZIP 文件
+          ARTIFACT_PATH=$(find ./build/dist -name "*.zip" -print -quit)
+          if [ -z "$ARTIFACT_PATH" ]; then
+            echo "❌ No Windows ZIP found!"
+            exit 1
+          fi
+          # 重命名文件为固定名称
+          mv "$ARTIFACT_PATH" "windows_app.zip"
+          echo "artifact_path=windows_app.zip" >> $GITHUB_OUTPUT
+        working-directory: simple_live_app
+        shell: bash
+      
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifact
+          path: simple_live_app/windows_app.zip
+          retention-days: 1
+
+  release:
+    needs: [setup, build-ios, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download iOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-artifact
+          path: ios
+      
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-artifact
+          path: windows
+      
+      - name: Verify artifacts
+        run: |
+          echo "✅ iOS artifact:"
+          ls -lh ios
+          echo "✅ Windows artifact:"
+          ls -lh windows
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.setup.outputs.tag_name }}
+          name: "Multi-platform Build ${{ needs.setup.outputs.tag_name }}"
+          body: |
+            🚀 **自动构建的跨平台应用**  
+            构建时间: $(date +"%Y-%m-%d %H:%M:%S UTC")
+            
+            📦 **包含平台**:
+            - iOS (未签名 IPA)
+            - Windows (ZIP 分发包)
+            
+            ⚠️ **使用说明**:
+            • iOS: 需要自行签名或使用第三方工具安装
+            • Windows: 首次运行可能触发安全警告，右键属性→解除锁定
+          files: |
+            ios/ios_no_sign.ipa
+            windows/windows_app.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - run: |
+          echo "✅ 构建完成! 查看 Release:"
+          echo "https://github.com/${{ github.repository }}/releases/tag/${{ needs.setup.outputs.tag_name }}"
