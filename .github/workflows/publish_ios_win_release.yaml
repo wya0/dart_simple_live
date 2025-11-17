@@ -17,14 +17,12 @@ jobs:
           echo "TAG_NAME=build-$CURRENT_DATE" >> $GITHUB_ENV
           echo "tag_name=${{ env.TAG_NAME }}" >> $GITHUB_OUTPUT
       
-      - name: Create and push tag
+      - name: Create Tag
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
           git tag ${{ env.TAG_NAME }}
           git push origin ${{ env.TAG_NAME }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-ios:
     needs: setup
@@ -34,22 +32,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Flutter setup
+      - name: Flutter action
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.x'
           cache: true
-      
-      - name: Build iOS (no sign)
+
+      - name: Build and Package iOS
         run: |
           cd simple_live_app
           flutter pub get
           flutter build ios --release --no-codesign
           mkdir -p build/ios/iphoneos/Payload
-          cp -R build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/
-          cd build/ios/iphoneos
+          cp -R build/ios/iphoneos/Runner.app build/ios/iphoneos/Payload/Runner.app
+          cd build/ios/iphoneos/
           zip -q -r ios_no_sign.ipa Payload
-        working-directory: simple_live_app
+          echo "IPA文件创建完成"
       
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
@@ -69,14 +67,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Flutter setup
+      - name: Flutter action
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.22.x'
           cache: true
       
       - name: Enable Windows desktop
-        run: flutter config --enable-windows-desktop
+        run: |
+          cd simple_live_app
+          flutter config --enable-windows-desktop
       
       - name: Install dependencies
         run: |
@@ -84,32 +84,31 @@ jobs:
           flutter pub get
           dart pub global activate flutter_distributor
       
-      - name: Build Windows app
+      - name: Build Windows application
         run: |
           cd simple_live_app
           flutter_distributor package --platform windows --targets zip --skip-clean
-        shell: bash
+          echo "Windows ZIP文件创建完成"
       
-      - name: Locate and rename Windows artifact
-        id: find-windows-artifact
+      - name: Locate Windows artifact
+        id: find-artifact
         run: |
-          # 查找生成的 ZIP 文件
+          # 查找生成的ZIP文件
           ARTIFACT_PATH=$(find ./build/dist -name "*.zip" -print -quit)
           if [ -z "$ARTIFACT_PATH" ]; then
-            echo "❌ No Windows ZIP found!"
+            echo "❌ 未找到Windows ZIP文件!"
+            ls -R ./build/dist || true
             exit 1
           fi
-          # 重命名文件为固定名称
-          mv "$ARTIFACT_PATH" "windows_app.zip"
-          echo "artifact_path=windows_app.zip" >> $GITHUB_OUTPUT
+          echo "artifact_path=$ARTIFACT_PATH" >> $GITHUB_OUTPUT
+          echo "✅ 找到Windows构建产物: $ARTIFACT_PATH"
         working-directory: simple_live_app
-        shell: bash
       
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-artifact
-          path: simple_live_app/windows_app.zip
+          path: simple_live_app/${{ steps.find-artifact.outputs.artifact_path }}
           retention-days: 1
 
   release:
@@ -136,29 +135,24 @@ jobs:
           ls -lh ios
           echo "✅ Windows artifact:"
           ls -lh windows
+          [ -f "ios/ios_no_sign.ipa" ] || { echo "❌ iOS文件缺失"; exit 1; }
+          [ -f "windows/*.zip" ] || { echo "❌ Windows文件缺失"; exit 1; }
       
-      - name: Create Release
+      - name: Upload Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ needs.setup.outputs.tag_name }}
-          name: "Multi-platform Build ${{ needs.setup.outputs.tag_name }}"
+          name: "Multi-platform Build"
           body: |
-            🚀 **自动构建的跨平台应用**  
-            构建时间: $(date +"%Y-%m-%d %H:%M:%S UTC")
-            
-            📦 **包含平台**:
-            - iOS (未签名 IPA)
-            - Windows (ZIP 分发包)
-            
-            ⚠️ **使用说明**:
-            • iOS: 需要自行签名或使用第三方工具安装
-            • Windows: 首次运行可能触发安全警告，右键属性→解除锁定
+            🚀 **自动构建的跨平台应用**
+            - 构建时间: $(date +"%Y-%m-%d %H:%M:%S UTC")
+            - iOS: 未签名IPA (需自行签名)
+            - Windows: 未签名ZIP (首次运行需解除锁定)
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
           files: |
             ios/ios_no_sign.ipa
-            windows/windows_app.zip
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            windows/*.zip
       
-      - run: |
-          echo "✅ 构建完成! 查看 Release:"
-          echo "https://github.com/${{ github.repository }}/releases/tag/${{ needs.setup.outputs.tag_name }}"
+      - run: echo "✅ 跨平台构建完成!"
