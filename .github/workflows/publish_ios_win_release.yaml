@@ -94,24 +94,31 @@ jobs:
         shell: pwsh
         run: |
           cd simple_live_app
-          # 查找ZIP文件
+          
+          # 1. 查找ZIP文件
           $zipFile = Get-ChildItem -Path "build/dist" -Recurse -Include "*.zip" | Select-Object -First 1
           if (-not $zipFile) {
             Write-Error "❌ 未找到Windows ZIP文件!"
-            Get-ChildItem "build/dist" -Recurse
+            Get-ChildItem "build/dist" -Recurse -Force
+            exit 1
+          }
+          Write-Host "🔍 找到原始文件: $($zipFile.FullName)"
+          
+          # 2. 复制到项目根目录（而非重命名）
+          $destination = "windows_app.zip"
+          Copy-Item -Path $zipFile.FullName -Destination $destination -Force
+          
+          # 3. 验证复制结果
+          if (-not (Test-Path $destination)) {
+            Write-Error "❌ 复制失败! 目标文件不存在: $destination"
             exit 1
           }
           
-          # 在当前目录重命名文件（避免使用..路径）
-          $newName = "windows_app.zip"
-          Rename-Item -Path $zipFile.FullName -NewName $newName -Force
-          $absPath = (Resolve-Path $newName).Path
+          $absPath = (Resolve-Path $destination).Path
+          Write-Host "✅ 成功复制Windows构建产物到: $absPath"
           
-          Write-Host "✅ 重命名Windows构建产物为: $newName"
-          Write-Host "📁 绝对路径: $absPath"
-          
-          # 设置输出为相对于仓库根目录的路径
-          $relativePath = "simple_live_app/$newName"
+          # 4. 设置相对于仓库根目录的路径
+          $relativePath = "simple_live_app/$destination"
           echo "artifact_path=$relativePath" >> $env:GITHUB_OUTPUT
       
       - name: Upload Windows artifact
