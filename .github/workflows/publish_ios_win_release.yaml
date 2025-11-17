@@ -89,27 +89,32 @@ jobs:
           flutter_distributor package --platform windows --targets zip --skip-clean
           echo "Windows ZIP文件创建完成"
       
-      - name: Locate Windows artifact
-        id: find-artifact
+      - name: Prepare Windows artifact
+        id: prepare-artifact
+        shell: pwsh
         run: |
           cd simple_live_app
-          # 使用PowerShell查找ZIP文件
+          # 查找ZIP文件
           $zipFile = Get-ChildItem -Path "build/dist" -Recurse -Include "*.zip" | Select-Object -First 1
           if (-not $zipFile) {
             Write-Error "❌ 未找到Windows ZIP文件!"
             Get-ChildItem "build/dist" -Recurse
             exit 1
           }
-          $relativePath = $zipFile.FullName.Substring($PWD.Path.Length + 1)
-          echo "artifact_path=$relativePath" >> $env:GITHUB_OUTPUT
-          Write-Host "✅ 找到Windows构建产物: $relativePath"
-        shell: pwsh
+          
+          # 复制到固定位置并重命名
+          $destination = "../windows_app.zip"
+          Copy-Item -Path $zipFile.FullName -Destination $destination -Force
+          Write-Host "✅ 复制Windows构建产物到: $destination"
+          
+          # 设置输出变量
+          echo "artifact_path=$destination" >> $env:GITHUB_OUTPUT
       
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-artifact
-          path: simple_live_app/${{ steps.find-artifact.outputs.artifact_path }}
+          path: ${{ steps.prepare-artifact.outputs.artifact_path }}
           retention-days: 1
 
   release:
@@ -118,42 +123,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download iOS artifact
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: ios-artifact
-          path: ios
-      
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: windows-artifact
-          path: windows
+          path: artifacts
       
       - name: Verify artifacts
         run: |
           echo "✅ iOS artifact:"
-          ls -lh ios
-          echo "✅ Windows artifact:"
-          ls -lh windows
-          [ -f "ios/ios_no_sign.ipa" ] || { echo "❌ iOS文件缺失"; exit 1; }
-          [ -f "windows/*.zip" ] || { echo "❌ Windows文件缺失"; exit 1; }
-      
-      - name: Upload Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ needs.setup.outputs.tag_name }}
-          name: "Multi-platform Build"
-          body: |
-            🚀 **自动构建的跨平台应用**
-            - 构建时间: $(date +"%Y-%m-%d %H:%M:%S UTC")
-            - iOS: 未签名IPA (需自行签名)
-            - Windows: 未签名ZIP (首次运行需解除锁定)
-          draft: false
-          prerelease: false
-          token: ${{ secrets.GITHUB_TOKEN }}
-          files: |
-            ios/ios_no_sign.ipa
-            windows/*.zip
-      
-      - run: echo "✅ 跨平台构建完成!"
+          ls -lh artifacts/ios-artifact/
+          if [ ! -f "artifacts/ios-artifact/
