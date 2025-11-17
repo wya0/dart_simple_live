@@ -61,9 +61,6 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: read
-    defaults:
-      run:
-        shell: bash
     steps:
       - uses: actions/checkout@v4
       
@@ -73,21 +70,8 @@ jobs:
           flutter-version: '3.22.x'
           cache: true
       
-      - name: Configure PATH for Dart packages
-        run: |
-          # 在Windows上，Dart全局包安装在特定位置
-          PUB_CACHE="$HOME/AppData/Local/Pub/Cache/bin"
-          echo "$PUB_CACHE" >> $GITHUB_PATH
-          echo "Added to PATH: $PUB_CACHE"
-          echo "PATH=$PATH" >> $GITHUB_ENV
-        shell: bash
-      
-      - name: Install flutter_distributor globally
-        run: |
-          dart pub global activate flutter_distributor
-          which flutter_distributor || echo "flutter_distributor not found in PATH"
-          flutter_distributor --version || echo "Version check failed"
-        shell: bash
+      - name: Install flutter_distributor
+        run: dart pub global activate flutter_distributor
       
       - name: Enable Windows desktop
         run: |
@@ -102,30 +86,24 @@ jobs:
       - name: Build Windows application
         run: |
           cd simple_live_app
-          # 使用完整路径调用 flutter_distributor
-          PUB_CACHE="$HOME/AppData/Local/Pub/Cache" \
-          "$PUB_CACHE/bin/flutter_distributor" package \
-            --platform windows \
-            --targets zip \
-            --skip-clean
+          flutter_distributor package --platform windows --targets zip --skip-clean
           echo "Windows ZIP文件创建完成"
-        shell: bash
       
       - name: Locate Windows artifact
         id: find-artifact
         run: |
           cd simple_live_app
-          # 查找生成的ZIP文件
-          find build/dist -name "*.zip" -exec echo "Found: {}" \;
-          ARTIFACT_PATH=$(find build/dist -name "*.zip" -print -quit)
-          if [ -z "$ARTIFACT_PATH" ]; then
-            echo "❌ 未找到Windows ZIP文件!"
-            ls -R build/dist || true
+          # 使用PowerShell查找ZIP文件
+          $zipFile = Get-ChildItem -Path "build/dist" -Recurse -Include "*.zip" | Select-Object -First 1
+          if (-not $zipFile) {
+            Write-Error "❌ 未找到Windows ZIP文件!"
+            Get-ChildItem "build/dist" -Recurse
             exit 1
-          fi
-          echo "artifact_path=$ARTIFACT_PATH" >> $GITHUB_OUTPUT
-          echo "✅ 找到Windows构建产物: $ARTIFACT_PATH"
-        shell: bash
+          }
+          $relativePath = $zipFile.FullName.Substring($PWD.Path.Length + 1)
+          echo "artifact_path=$relativePath" >> $env:GITHUB_OUTPUT
+          Write-Host "✅ 找到Windows构建产物: $relativePath"
+        shell: pwsh
       
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
