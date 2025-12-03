@@ -183,5 +183,5 @@ jobs:
             artifacts/windows-artifact/windows_app.zip
       
       - run: |
-        echo "✅ 跨平台构建完成!"
-        echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.setup.outputs.tag_name }}"
+          echo "✅ 跨平台构建完成!"
+          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.setup.outputs.tag_name }}"
