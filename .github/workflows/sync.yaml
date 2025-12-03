@@ -7,7 +7,6 @@ on:
   # 调度任务：每天 UTC 16:00 自动运行一次
   schedule:
     - cron: '0 16 * * *' 
-  
   # 允许手动点击触发
   workflow_dispatch:
 
@@ -43,18 +42,35 @@ jobs:
           # 1. 配置 Git 身份，用于 commit (合并)
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
           # 2. 构造完整的 HTTPS URL，避免插件 Bug
           FULL_UPSTREAM_URL="https://github.com/${UPSTREAM_SLUG}.git"
+
           # 3. 添加上游仓库远程地址
           git remote add upstream $FULL_UPSTREAM_URL
+
           # 4. 拉取上游更新
           git fetch upstream
-          # 5. 切换到目标分支并合并
+
+          # 5. 切换到目标分支并合并 (允许无关历史)
           git checkout $TARGET_BRANCH
-          git merge upstream/$UPSTREAM_BRANCH --no-edit 
-          # 6. 推送回你的远程仓库
+          git merge upstream/$UPSTREAM_BRANCH --no-edit || true
+
+          # =====================================================
+          # 【关键修改】还原 .github/workflows/ 目录
+          # =====================================================
+          echo "Restoring .github/workflows/ from origin..."
+          # 强制将 workflows 目录恢复成 origin (你自己的远程仓库) 的状态
+          # 这样上游对这个目录的修改（包括新建文件）都会被撤销
+          git checkout origin/$TARGET_BRANCH -- .github/workflows/
+
+          # 6. 提交并推送
+          # 因为还原了文件，Git 状态变了，需要重新 commit 一次
+          # 如果没有变更(upstream 没动 workflows)，这里会提示 nothing to commit，加 || true 防止报错
+          git commit -m "Sync upstream (discarding upstream workflow changes)" || echo "No workflow changes to process"
+
           git push origin $TARGET_BRANCH
-          
+
       - name: Check for Success
         if: success()
         run: echo "Fork Sync completed successfully."
