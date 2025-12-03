@@ -4,17 +4,14 @@ permissions:
   contents: write
 
 on:
-  # 调度任务：每天 UTC 16:00 自动运行一次
   schedule:
     - cron: '0 16 * * *' 
-  # 允许手动点击触发
   workflow_dispatch:
 
 jobs:
   sync_with_upstream:
     name: Sync with Upstream
     runs-on: ubuntu-latest
-    # 确保只在 Fork 仓库中运行时才执行
     if: ${{ github.event.repository.fork }}
 
     steps:
@@ -23,59 +20,48 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: ${{ github.ref_name }}
-          # 必须设置为 0，获取完整历史记录，为 merge 操作做准备
           fetch-depth: 0 
 
       - name: Sync Upstream via Git
-        # 集中定义可修改的配置变量
         env:
-          # 【上游仓库】只需填写 用户名/仓库名
           UPSTREAM_SLUG: xiaoyaocz/dart_simple_live
-          
-          # 【上游分支】需要同步的上游分支名
           UPSTREAM_BRANCH: master
-          
-          # 【目标分支】你本仓库要同步的目标分支名
           TARGET_BRANCH: ${{ github.ref_name }}
         
         run: |
-          # 1. 配置 Git 身份
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-          # 2. 准备上游远程地址
           FULL_UPSTREAM_URL="https://github.com/${UPSTREAM_SLUG}.git"
           git remote add upstream $FULL_UPSTREAM_URL
           git fetch upstream
 
-          # 3. 切换到目标分支
           git checkout $TARGET_BRANCH
 
-          # =====================================================
-          # 【核心步骤】合并但不提交 (--no-commit)
-          # =====================================================
-          # 使用 --no-commit 让更改停留在暂存区，给我们清理的机会
-          # 使用 || true 防止如果没有更新时脚本报错退出
+          # 合并但不提交
           git merge upstream/$UPSTREAM_BRANCH --no-edit --no-commit || true
 
           # =====================================================
-          # 【清理步骤】强行还原 workflows 目录
+          # 【暴力清理步骤】
           # =====================================================
-          echo "Cleaning up workflows directory to avoid permission errors..."
+          echo "Aggressively cleaning workflows directory..."
           
-          # 这一步将暂存区里的 .github/workflows 强制重置为 HEAD (当前仓库) 的状态
-          # 这样上游对这个目录的任何新增、修改、删除都会被丢弃
-          git checkout HEAD -- .github/workflows/ || echo "Workflows directory not present in HEAD, skipping cleanup."
+          # 1. 先从暂存区和工作区彻底移除 .github/workflows 目录
+          # 这一步会删除上游带来的所有新文件 (比如 publish_tv_app_dev.yaml)
+          git rm -rf .github/workflows/ || true
+
+          # 2. 再从当前的 HEAD (你原本的代码) 恢复该目录
+          # 这一步会把你原本的 workflow 文件原封不动地拿回来
+          git checkout HEAD -- .github/workflows/ || true
 
           # =====================================================
           # 【提交并推送】
           # =====================================================
-          # 检查暂存区是否有剩余的变更（即除了 workflow 之外的代码变更）
           if git diff --staged --quiet; then
-            echo "No changes to commit (Everything is up to date or only workflows changed)."
+            echo "No changes to commit."
           else
             echo "Committing clean changes..."
-            git commit -m "Sync upstream (skipped upstream workflows)"
+            git commit -m "Sync upstream (removed upstream workflows)"
             git push origin $TARGET_BRANCH
           fi
 
