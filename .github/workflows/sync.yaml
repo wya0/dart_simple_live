@@ -1,47 +1,60 @@
 name: Sync Fork
 
 permissions:
-    contents: write
+  contents: write
 
 on:
-    schedule:
-        - cron: '0 16 * * *' # 每天UTC时间16点（即北京时间凌晨0点）同步一次
-    workflow_dispatch:  # 允许手动触发
+  # 调度任务：每天 UTC 16:00 自动运行一次
+  schedule:
+    - cron: '0 16 * * *' 
+  
+  # 允许手动点击触发
+  workflow_dispatch:
 
 jobs:
-    sync_with_upstream:
-        name: Sync with Upstream
-        runs-on: ubuntu-latest
-        if: ${{ github.event.repository.fork }}
+  sync_with_upstream:
+    name: Sync with Upstream
+    runs-on: ubuntu-latest
+    # 确保只在 Fork 仓库中运行时才执行
+    if: ${{ github.event.repository.fork }}
 
-        steps:
-            - name: Checkout target repo
-              uses: actions/checkout@v4
-              with:
-                token: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout target repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.ref_name }}
+          # 必须设置为 0，获取完整历史记录，为 merge 操作做准备
+          fetch-depth: 0 
 
-            - name: Sync Upstream
-              uses: aormsby/Fork-Sync-With-Upstream-action@v3.4.1
-              with:
-                  target_repo_token: ${{ secrets.GITHUB_TOKEN }} # 使用Github自动生成的Token
-                  
-                  upstream_sync_repo: xiaoyaocz/dart_simple_live # 替换为上游仓库，如：torvalds/linux
-                  upstream_sync_branch: master
-                  target_sync_branch: master
-                  
-                  test_mode: false
-
-            - name: Check for new commits
-              if: success()
-              run: echo "Sync completed successfully"
-
-            - name: Check for Failure
-              if: failure()
-              run: |
-                  echo "[Error] Sync failed. This might be due to:"
-                  echo "1. Changes in the upstream workflow file"
-                  echo "2. Merge conflicts that need manual resolution"
-                  echo "3. Network issues"
-                  echo "Please check the logs and consider manual sync if needed."
-
-                  exit 1
+      - name: Sync Upstream via Git
+        # 集中定义可修改的配置变量
+        env:
+          # 【上游仓库】只需填写 用户名/仓库名
+          UPSTREAM_SLUG: xiaoyaocz/dart_simple_live
+          
+          # 【上游分支】需要同步的上游分支名
+          UPSTREAM_BRANCH: master
+          
+          # 【目标分支】你本仓库要同步的目标分支名
+          TARGET_BRANCH: ${{ github.ref_name }}
+        
+        run: |
+          # 1. 配置 Git 身份，用于 commit (合并)
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          # 2. 构造完整的 HTTPS URL，避免插件 Bug
+          FULL_UPSTREAM_URL="https://github.com/${UPSTREAM_SLUG}.git"
+          # 3. 添加上游仓库远程地址
+          git remote add upstream $FULL_UPSTREAM_URL
+          # 4. 拉取上游更新
+          git fetch upstream
+          # 5. 切换到目标分支并合并
+          git checkout $TARGET_BRANCH
+          git merge upstream/$UPSTREAM_BRANCH --no-edit 
+          # 6. 推送回你的远程仓库
+          git push origin $TARGET_BRANCH
+          
+      - name: Check for Success
+        if: success()
+        run: echo "Fork Sync completed successfully."
