@@ -157,14 +157,22 @@ jobs:
           fi
           echo "✅ 所有平台构建产物验证通过"
       
+      # --- 🔥 修复部分开始 🔥 ---
+      - name: Get Build Time
+        run: |
+          # 获取当前时间并存入环境变量
+          echo "BUILD_TIME=$(date +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_ENV
+      # --- 🔥 修复部分结束 🔥 ---
+
       - name: Upload Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ needs.setup.outputs.tag_name }}
           name: "Multi-platform Build ${{ needs.setup.outputs.tag_name }}"
+          # 这里使用了上面计算好的变量 ${{ env.BUILD_TIME }}
           body: |
             🚀 **自动构建的跨平台应用**
-            - 构建时间: $(date +"%Y-%m-%d %H:%M:%S UTC")
+            - 构建时间: ${{ env.BUILD_TIME }}
             - iOS: 未签名IPA (需自行签名)
             - Windows: 未签名ZIP (首次运行需解除锁定)
           draft: false
@@ -175,5 +183,5 @@ jobs:
             artifacts/windows-artifact/windows_app.zip
       
       - run: |
-          echo "✅ 跨平台构建完成!"
-          echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.setup.outputs.tag_name }}"
+        echo "✅ 跨平台构建完成!"
+        echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.setup.outputs.tag_name }}"
