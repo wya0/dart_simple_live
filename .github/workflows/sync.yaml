@@ -39,37 +39,45 @@ jobs:
           TARGET_BRANCH: ${{ github.ref_name }}
         
         run: |
-          # 1. 配置 Git 身份，用于 commit (合并)
+          # 1. 配置 Git 身份
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-          # 2. 构造完整的 HTTPS URL，避免插件 Bug
+          # 2. 准备上游远程地址
           FULL_UPSTREAM_URL="https://github.com/${UPSTREAM_SLUG}.git"
-
-          # 3. 添加上游仓库远程地址
           git remote add upstream $FULL_UPSTREAM_URL
-
-          # 4. 拉取上游更新
           git fetch upstream
 
-          # 5. 切换到目标分支并合并 (允许无关历史)
+          # 3. 切换到目标分支
           git checkout $TARGET_BRANCH
-          git merge upstream/$UPSTREAM_BRANCH --no-edit || true
 
           # =====================================================
-          # 【关键修改】还原 .github/workflows/ 目录
+          # 【核心步骤】合并但不提交 (--no-commit)
           # =====================================================
-          echo "Restoring .github/workflows/ from origin..."
-          # 强制将 workflows 目录恢复成 origin (你自己的远程仓库) 的状态
-          # 这样上游对这个目录的修改（包括新建文件）都会被撤销
-          git checkout origin/$TARGET_BRANCH -- .github/workflows/
+          # 使用 --no-commit 让更改停留在暂存区，给我们清理的机会
+          # 使用 || true 防止如果没有更新时脚本报错退出
+          git merge upstream/$UPSTREAM_BRANCH --no-edit --no-commit || true
 
-          # 6. 提交并推送
-          # 因为还原了文件，Git 状态变了，需要重新 commit 一次
-          # 如果没有变更(upstream 没动 workflows)，这里会提示 nothing to commit，加 || true 防止报错
-          git commit -m "Sync upstream (discarding upstream workflow changes)" || echo "No workflow changes to process"
+          # =====================================================
+          # 【清理步骤】强行还原 workflows 目录
+          # =====================================================
+          echo "Cleaning up workflows directory to avoid permission errors..."
+          
+          # 这一步将暂存区里的 .github/workflows 强制重置为 HEAD (当前仓库) 的状态
+          # 这样上游对这个目录的任何新增、修改、删除都会被丢弃
+          git checkout HEAD -- .github/workflows/ || echo "Workflows directory not present in HEAD, skipping cleanup."
 
-          git push origin $TARGET_BRANCH
+          # =====================================================
+          # 【提交并推送】
+          # =====================================================
+          # 检查暂存区是否有剩余的变更（即除了 workflow 之外的代码变更）
+          if git diff --staged --quiet; then
+            echo "No changes to commit (Everything is up to date or only workflows changed)."
+          else
+            echo "Committing clean changes..."
+            git commit -m "Sync upstream (skipped upstream workflows)"
+            git push origin $TARGET_BRANCH
+          fi
 
       - name: Check for Success
         if: success()
